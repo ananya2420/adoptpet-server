@@ -1,19 +1,18 @@
-
 //const dns = require("node:dns");
 //dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
-
-const express=require('express');
-const dotenv=require('dotenv');
-const cors=require("cors");
+const express = require('express');
+const dotenv = require('dotenv');
+const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-dotenv.config()
-const uri = process.env.MONGODB_URI
-const app=express()
-const PORT=process.env.PORT
+dotenv.config();
 
-app.use(cors())
-app.use(express.json())
+const uri = process.env.MONGODB_URI;
+const app = express();
+const PORT = process.env.PORT || 5000; // Fallback to 5000 if PORT environment variable isn't read
+
+app.use(cors());
+app.use(express.json());
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -25,48 +24,70 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    
     await client.connect();
     
-    const db=client.db("adoptpet")
+    const db = client.db("adoptpet");
+    const petCollection = db.collection("pets");
+
+    // Get all pets
+    app.get('/pet', async (req, res) => {
+      const result = await petCollection.find().toArray();
+      res.send(result);
+    });
    
-    const petCollection=db.collection("pets")
+    // Get single pet by ID (Protected)
+    app.get("/pet/:id", (req, res, next) => {
+      const authorizationHeader = req.headers.authorization;
+      
+      // Fixed the typo here by matching the variable names correctly
+      if (authorizationHeader === "logged in") {
+        next();
+      } else {
+        res.status(401).json({ message: "unauthorized" });
+      }
+    }, async (req, res) => {
+      try {
+        const { id } = req.params;
 
-    app.get('/pet', async(req,res)=>{
-        const result=await petCollection.find().toArray()
-        res.send(result)
-    })
-   
-    app.get("/pet/:id",async(req,res)=>{
-      const {id}=req.params
+        // Ensure the ID structure is a valid 24-character hexadecimal string before passing to ObjectId
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: "Invalid pet ID format" });
+        }
 
-      const result=await petCollection.findOne({_id:new ObjectId(id)})
+        const result = await petCollection.findOne({ _id: new ObjectId(id) });
 
-      res.json(result)
-    })
+        if (!result) {
+          return res.status(404).json({ error: "Pet not found" });
+        }
+
+        res.json(result);
+      } catch (error) {
+        console.error("Database query error:", error);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    });
+
+    // Create a new pet listing
     app.post('/pet', async (req, res) => {
-  const petData = req.body;
-  console.log("Received data:", petData);
-  
-  const result = await petCollection.insertOne(petData);
-  res.status(201).json(result);
-});
-
+      const petData = req.body;
+      console.log("Received data:", petData);
+      
+      const result = await petCollection.insertOne(petData);
+      res.status(201).json(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    
-    //await client.close();
+  } catch (error) {
+    console.error("Failed to connect or run backend routes:", error);
   }
 }
 run().catch(console.dir);
 
+app.get('/', (req, res) => {
+  res.send("Server is running fine!");
+});
 
-app.get('/',(req,res)=>{
-    res.send("Server is running fine!")
-})
-
-app.listen(PORT,()=>{
-    console.log(`Server running on port ${PORT}`)
-})
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
