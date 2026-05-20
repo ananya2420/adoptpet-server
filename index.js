@@ -5,6 +5,7 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 dotenv.config();
 
 const uri = process.env.MONGODB_URI;
@@ -22,6 +23,35 @@ const client = new MongoClient(uri, {
   }
 });
 
+const JWKS=createRemoteJWKSet(
+  new URL("http://localhost:3000/api/auth/jwks")
+)
+
+const verifyToken=async(req,res,next)=>{
+  const authHeader=req?.headers.authorization
+  // FIXED: Changed to !authHeader so it blocks requests that MISS the header
+  if(!authHeader){
+    return res.status(401).json({message:"unauthorized"})
+  }
+  //console.log(authHeader)
+  
+  const token=authHeader.split(" ")[1]
+  if(!token){
+    return res.status(401).json({message:"unauthorized"})
+  }
+ 
+  try{
+    const {payload}=await jwtVerify(token,JWKS)
+  console.log(payload)
+  next()
+  }catch(err){
+    return res.status(403).json({message:"Forbidden"});
+  }
+ 
+  //console.log(token)
+// next()
+}
+
 async function run() {
   try {
     await client.connect();
@@ -36,15 +66,13 @@ async function run() {
     });
    
     // Get single pet by ID (Protected)
-    app.get("/pet/:id", (req, res, next) => {
+    app.get("/pet/:id",verifyToken, (req, res, next) => {
       const authorizationHeader = req.headers.authorization;
-      
+      console.log(authorizationHeader)
       // Fixed the typo here by matching the variable names correctly
-      if (authorizationHeader === "logged in") {
+      
         next();
-      } else {
-        res.status(401).json({ message: "unauthorized" });
-      }
+      
     }, async (req, res) => {
       try {
         const { id } = req.params;
